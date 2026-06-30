@@ -407,6 +407,8 @@ interface Constraint {
 
 **规则四：标注关系**。元素之间可能有关联（如一个 Narrative 引用一个 DataSeries），这种关联需要在拆解时保留。
 
+**规则五：跨元素关联识别**。当两个或多个元素中的数据实体存在语义对应关系（如同一用户在两个散点图中出现、上游表字段对应下游表字段），应识别并记录这种跨元素关联。跨元素关联是独立于任何单一元素的 Overlay 层，详细设计见 [LINKING.md](./LINKING.md)。
+
 ---
 
 ## 四、Step 3: 结构组织
@@ -500,10 +502,31 @@ interface SIR {
 
   // 全局布局意图
   layout: {
-    pattern: "dashboard" | "report" | "comparison" | "timeline" | "flow" | "grid";
+    pattern: "dashboard" | "report" | "comparison" | "timeline" | "flow" | "grid" | "linked-views";
     readingFlow: "top-down" | "left-right" | "z-pattern" | "f-pattern";
     density: "sparse" | "normal" | "dense";
   };
+
+  // 跨元素关联层（Overlay）— 描述不同元素之间的跨视图关系
+  // 详见 LINKING.md
+  linkings?: CrossElementLink[];
+}
+
+// 跨元素关联
+interface CrossElementLink {
+  id: string;
+  type: "entity_match" | "entity_flow" | "field_mapping"
+      | "comparison_link" | "correspondence" | "causal" | "aggregation";
+  endpoints: LinkEndpoint[];
+  label?: string;
+  strength?: "strong" | "medium" | "weak";
+  direction?: "none" | "directed" | "bidirectional";
+}
+
+interface LinkEndpoint {
+  elementRef: string;          // 引用 SIR 中的元素 ID
+  selector: string;            // 元素内的选择器（如 "point[user_001]"）
+  anchor?: "center" | "edge" | "auto";
 }
 
 interface SIRNode {
