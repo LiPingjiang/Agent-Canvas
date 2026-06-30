@@ -6,7 +6,7 @@
 
 ## 一、参考框架
 
-### 1.1 ISCO-08 国际标准职业分类（10 大职业组）
+### 1.1 [ISCO-08](https://www.ilo.org/public/english/bureau/stat/isco/isco08/) 国际标准职业分类（10 大职业组）
 
 国际劳工组织制定的全球职业分类框架，10 个主要组：
 
@@ -21,20 +21,20 @@
 9. Elementary Occupations（基础职业）
 10. Armed Forces Occupations（军人职业）
 
-### 1.2 GB/T 4754-2017 国民经济行业分类（20 个门类）
+### 1.2 [GB/T 4754-2017](http://www.stats.gov.cn/sj/tjbz/gjtjbz/) 国民经济行业分类（20 个门类）
 
 A. 农林牧渔业 | B. 采矿业 | C. 制造业 | D. 电力燃气水生产 | E. 建筑业 | F. 批发零售 | G. 交通运输仓储邮政 | H. 住宿餐饮 | I. 信息传输软件信息技术 | J. 金融业 | K. 房地产 | L. 租赁商务服务 | M. 科学研究技术服务 | N. 水利环境公共设施 | O. 居民服务修理 | P. 教育 | Q. 卫生社会工作 | R. 文化体育娱乐 | S. 公共管理社会保障 | T. 国际组织
 
-### 1.3 Shneiderman 任务×数据类型分类学
+### 1.3 [Shneiderman](https://www.cs.umd.edu/~ben/papers/Shneiderman1996eyes.pdf) 任务×数据类型分类学
 
 7 种数据类型：1D、2D、3D、时间、多维、树、网络
 7 种任务：Overview、Zoom、Filter、Details-on-demand、Relate、History、Extract
 
-### 1.4 Munzner What-Why-How 框架
+### 1.4 [Munzner](https://www.cs.ubc.ca/~tmm/vadbook/) What-Why-How 框架
 
 数据类型（What）：表格、网络、树、场（连续空间数据）、几何、空间
 任务（Why）：浏览、搜索、比较、识别、汇总、推导
-编码（How）：位置、大小、颜色、形状、方向、纹理（Bertin 视觉变量）
+编码（How）：位置、大小、颜色、形状、方向、纹理（[Bertin](https://pages.graphics.cs.wisc.edu/VisSnacks/resources/bertin/) 视觉变量）
 
 ---
 
