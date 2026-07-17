@@ -1448,6 +1448,148 @@ interface AgentCanvasTrace {
 
 Agent Canvas 必须保持开放：Canvas Schema 是标准 JSON、Trace 是标准格式、Wiki Memory 是 Markdown 文件、记忆存储在用户控制的数据库中。这确保用户不会被锁定在特定模型或平台。
 
+### 11.16 Dreaming 与 Outcomes — 自我改进的质量门禁
+
+[Claude Blog 的 "New in Claude Managed Agents: dreaming, outcomes, and multiagent orchestration"](https://claude.com/blog/new-in-claude-managed-agents) 引入了两个直接适用于 Agent Canvas 的机制：
+
+**Dreaming（做梦）** — 在会话之间运行的后台进程，审查 agent 的历史 session 和 memory store，提取模式，整理记忆，让 agent 随时间自我改进。Dreaming 可以发现单个 agent 看不到的模式：重复犯的错误、多个 agent 收敛到的工作流、团队共享的偏好。
+
+```
+Agent Canvas 的 Dreaming 设计：
+1. 定期扫描最近的生成 Trace（如每天一次）
+2. 聚类失败模式：
+   - "柱状图标签重叠"出现 15 次 → 增加 Hook 规则
+   - "暗色主题对比度不足"出现 8 次 → 更新组件预设
+   - "多区域仪表盘对齐偏差"出现 5 次 → 增加 layout 验证步骤
+3. 提取偏好模式：
+   - 60% 的用户偏好暗色主题 → 设为默认
+   - 80% 的仪表盘包含至少一个 StatCard → 加入默认模板
+4. 整理 Memory Store：去重、压缩、保持高信号
+5. 两种模式：自动更新（快速迭代）或人工审核后更新（安全优先）
+```
+
+这与 11.12 节的"持续学习三层模型"中的"离线作业"模式完全对应。Dreaming 是 Context 层学习的自动化实现。
+
+**Outcomes（结果评估）** — 开发者编写一个 rubric（评分标准）描述"成功长什么样"，agent 朝这个目标工作。一个独立的 grader（评分器）在单独的上下文窗口中评估输出，不受 agent 推理过程的影响。当不达标时，grader 指出具体需要改什么，agent 再试一次。
+
+```
+Agent Canvas 的 Outcomes 设计：
+1. 定义可视化质量 rubric：
+   - 所有数据标签可读（不重叠、不遮挡）
+   - 色彩对比度 ≥ WCAG AA（4.5:1）
+   - 布局对齐偏差 < 4px
+   - 所有语义元素都有视觉表达
+   - 图表类型匹配数据语义（对比→柱状/雷达，流转→桑基/漏斗）
+2. 生成 agent 产出 Canvas Schema → 渲染 → 截图
+3. 独立 grader agent 在单独上下文中审查截图
+4. 如不达标 → grader 指出具体问题 → 生成 agent 修正 → 回到 2
+5. 达标 → 输出最终结果
+```
+
+Anthropic 内部测试：Outcomes 在结构化文件生成任务上将成功率提升最多 10 分，最大提升出现在最难的问题上。docx +8.4%，pptx +10.1%——这与 Agent Canvas 在复杂场景（70%）收益最大的发现一致。
+
+关键设计决策：**grader 必须在独立上下文窗口中运行**——不接触生成 agent 的推理链，避免 confirmation bias。这验证了 Agent Canvas 视觉审查层的设计：多模态审查模型应该是独立调用，而不是让生成模型自己审查自己。
+
+### 11.17 未知管理 — 从 Fable 5 学到的提示工程
+
+[Claude Blog 的 "A field guide to Claude Fable 5: Finding your unknowns"](https://claude.com/blog/a-field-guide-to-claude-fable-finding-your-unknowns) 提出了一个对 Agent Canvas 直接有用的认知框架——**四种未知**：
+
+| 类型 | 定义 | Agent Canvas 中的表现 |
+|------|------|---------------------|
+| Known Knowns | 用户明确告诉 agent 的 | "做一个销售仪表盘，包含营收、趋势、TOP10" |
+| Known Unknowns | 用户知道但还没想清楚的 | "我要对比三个方案，但还没想好用什么图表" |
+| Unknown Knowns | 太明显以至于不会写出来，但看到就会认出 | "数据标签不该挡住数据点" |
+| Unknown Unknowns | 完全没考虑到的 | "响应式布局在小屏幕上柱状图变成了窄条" |
+
+> "Claude Fable is the first model where I find the quality of the work is bottlenecked by my ability to clarify its unknowns."
+
+**对 Agent Canvas 的启示**：
+
+1. **盲点扫描（Blind Spot Pass）** — 在语义建模之前，让 agent 主动发现用户的 unknown unknowns：
+
+```
+用户："做一个销售概览"
+Agent Canvas 的盲点扫描：
+  "你提到了销售概览，但以下问题我还不清楚：
+   - 时间范围？（本月？本季度？全年对比？）
+   - 对比维度？（同比？环比？目标完成率？）
+   - 受众？（高管需要摘要，运营需要明细）
+   - 这些是你在提示中可能没想到的，但会影响可视化设计。"
+```
+
+2. **原型发散** — 对 unknown knowns（"看到才知道想要什么"），让 agent 生成多个视觉方案让用户选择，而不是一次性生成一个"最优"结果：
+
+```
+"我不确定你要的'对比'长什么样，这里有 4 个方向：
+   A. 雷达图（多维度同时对比）
+   B. 分组柱状图（逐维度对比）
+   C. 热力图（矩阵式对比）
+   D. 评分表（精确数值对比）
+ 请告诉我哪个方向最接近你的需求。"
+```
+
+3. **实现笔记** — 在视觉映射阶段，让 agent 边做边记录它的假设：
+
+```
+"我假设你想用柱状图展示月度趋势，因为：
+   - 你说'趋势'（暗示时间序列）
+   - 数据是月度的（12 个数据点，适合柱状图）
+   - 如果这个假设不对，请告诉我。"
+```
+
+### 11.18 OKF 结构化 Wiki — 标准化知识格式
+
+[LangChain 的 "OpenWiki 0.2 OKF support"](https://www.langchain.com/blog/openwiki-0-2-adds-okf-support) 引入了 [OKF（Open Knowledge Format）](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)——一个来自 Google Cloud 的结构化知识 Wiki 标准。这对 Agent Canvas 的 Wiki Memory（11.13 节）有直接价值。
+
+OKF 的核心规范：
+
+```yaml
+---
+type: <类型名称>           # 必填，标识文档概念
+title: <显示名称>
+description: <一行摘要>
+resource: <底层资源的规范 URI>
+tags: [<tag>, <tag>, ...]
+timestamp: <ISO 8601 最后修改时间>
+---
+
+# 文档正文（Markdown）
+```
+
+OKF 定义两个约定：
+- `index.md` — 每个目录的摘要文件，列出该目录下所有文件和子目录
+- `logs.md` — 变更日志，记录每次更新的内容
+
+**Agent Canvas Wiki Memory 的 OKF 化**：
+
+```
+/wiki/
+  index.md                    — Wiki 总索引
+  logs.md                     — 变更日志
+  /patterns/
+    index.md                  — 可视化模式索引
+    comparison.md             — OKF: type=pattern, tags=[compare, bar, radar, heatmap]
+    flow.md                   — OKF: type=pattern, tags=[flow, sankey, funnel]
+    distribution.md           — OKF: type=pattern, tags=[distribute, scatter, boxplot]
+  /components/
+    index.md
+    statcard.md               — OKF: type=component, tags=[card, metric, kpi]
+    chart.md                  — OKF: type=component, tags=[chart, recharts]
+  /decisions/
+    index.md
+    why-bounded-gen.md        — OKF: type=decision, tags=[architecture, safety]
+```
+
+**OKF 带来的好处**：
+
+1. **确定性检索** — agent 可以按 tag 或 category 精确过滤，而不是依赖昂贵的 agentic search。例如"找所有 tag 包含 `compare` 的 pattern 文档"是确定性操作，不需要模型推理。
+
+2. **增量更新** — `logs.md` 让 agent 检查"上次更新后什么变了"变得简单——只需读 changelog 而非扫描整个 Wiki。
+
+3. **生态兼容** — OKF 是开放标准，可以使用 Google 的[开源 Wiki 可视化器](https://github.com/GoogleCloudPlatform/knowledge-catalog)检视 Wiki 结构，也可以用社区开发的渲染器、linter 等工具。
+
+4. **进度追踪** — OKF 的 `timestamp` 字段让 Agent Canvas 可以追踪每个 Wiki 条目的新鲜度，优先更新过时的条目。
+
 ---
 
 ## 九、关键设计决策记录
