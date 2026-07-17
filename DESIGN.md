@@ -1061,6 +1061,160 @@ Agent Canvas 的三层架构天然提供了统一的成本追踪粒度：
    - 确保语义覆盖完整
 ```
 
+### 11.8 Agent 执行环境与沙盒
+
+[LangChain 的 "Agents need their own computer"](https://www.langchain.com/blog/agents-need-their-own-computer) 提出了 Agent 可视化生成中一个被忽视的问题：Agent 需要一个真正的执行环境来验证自己的输出。
+
+> "A system that can only produce text is like a contractor who can describe exactly how to fix your plumbing but has no hands, no tools, and no truck."
+
+Agent Canvas 的视觉反馈闭环（渲染 → 截图 → 审查 → 修正）本质上就需要这样的执行环境：
+
+```
+Agent Canvas 执行环境需求：
+1. 安全执行 — 渲染引擎运行的代码可能来自 Agent 生成的 Schema，需隔离
+2. 状态控制 — 截图服务、渲染引擎、审查模型各有不同的资源限制
+3. 可观测性 — 记录每次渲染的命令、文件变更、网络调用、输出结果
+4. 快速迭代 — 渲染 + 截图的延迟直接影响反馈闭环的响应速度
+```
+
+文章的四个核心需求映射到 Agent Canvas：
+
+| 需求 | LangChain 定义 | Agent Canvas 对应 |
+|------|---------------|------------------|
+| 安全执行 | 每个 Agent 工作区是硬件虚拟化机器 | 渲染引擎运行在隔离沙盒中，Schema 不可执行恶意代码 |
+| 状态控制 | 凭证管理、资源限制、生命周期控制 | 渲染资源限制（内存/CPU/超时）、API 密钥代理注入 |
+| 可观测性 | 审计日志：命令、文件、网络、包 | 渲染日志 + 截图版本 + 审查反馈完整链路 |
+| 快速迭代 | 亚秒级启动、可复现、持久状态 | 渲染引擎预热 + Canvas Schema 版本化 |
+
+文章还提出了一个重要的安全洞察——**Prompt Injection 在沙盒工作流中的风险**：沙盒提供执行隔离，但不改变 LLM 的一个基本特性——Agent 读到的任何内容都可能影响它下一步做什么。Agent Canvas 在视觉审查环节也需要注意：多模态 LLM 审查截图时，如果截图中包含恶意注入的文字（如"忽略之前的指令"），可能影响审查结果。缓解措施包括：将审查输出结构化（Zod schema 验证），不直接执行审查建议而是经过中间层过滤。
+
+快照与分叉（Snapshot and Fork）模式对 Agent Canvas 的视觉反馈闭环特别有价值：
+
+```
+快照与分叉模式：
+1. 渲染 Canvas Schema → 截图 → 快照 A
+2. 从快照 A 分叉 3 个并行修正方案：
+   - 方案 1: 调整布局
+   - 方案 2: 调整颜色
+   - 方案 3: 调整字号
+3. 各自渲染 + 截图 → 审查
+4. 选最佳方案作为最终输出
+```
+
+### 11.9 程序化编排模式
+
+[LangChain 的 "Introducing Dynamic Subagents"](https://www.langchain.com/blog/introducing-dynamic-subagents-in-deep-agents) 和 ["How to Use RLMs in Deep Agents"](https://www.langchain.com/blog/how-to-use-rlms-in-deep-agents) 提出了六种程序化编排模式，这些模式可以直接用于 Agent Canvas 的复杂可视化生成：
+
+| 模式 | LangChain 定义 | Agent Canvas 应用场景 |
+|------|---------------|---------------------|
+| Classify and act | 按类型路由到专家 | 混合需求分类：表格类→表格专家，图表类→图表专家，布局类→布局专家 |
+| Fanout and synthesize | 并行处理后合并 | 多区域仪表盘：各区域独立生成，Lead 合并 |
+| Adversarial verification | 先发现再独立验证 | 视觉审查：生成 agent 产出 + 独立审查 agent 验证，只保留通过双重确认的结果 |
+| Generate and filter | 生成多个方案，评分选优 | 同一需求生成 3 个视觉方案，多模态 LLM 评分选最佳 |
+| Tournament | 两两对决，淘汰制 | 主观审美标准下的方案选择 |
+| Loop until done | 重复扫描直到无新发现 | 完整性检查：反复扫描直到所有语义元素都有对应视觉表达 |
+
+[RLM 论文](https://arxiv.org/abs/2512.24601) 的核心洞察——**"确定性覆盖"（deterministic coverage）**——对 Agent Canvas 尤其重要：
+
+> "Coverage is guaranteed by code, not model judgment. A `for b in batches` loop touches every batch by construction, whereas a plain model has a hard time performing iterations like this at scale."
+
+在 Agent Canvas 中，这意味着：确保所有语义元素都有对应的 DataItem、所有 DataItem 都有对应的 Mark、所有语义关系都有对应的 Relation——这些覆盖性检查应该用代码循环保证，而不是依赖模型的自我检查。
+
+LangChain 的 OOLONG 基准测试数据验证了程序化编排在大规模场景下的价值：
+
+```
+OOLONG 基准测试结果（AgNews 数据集）：
+- 64K token:  普通 agent 0.58 vs RLM agent 0.67
+- 128K token: 普通 agent 0.44 vs RLM agent 0.79
+
+→ 上下文越长，程序化编排的优势越大
+→ Agent Canvas 的多区域仪表盘（大量 DataItem）天然适合程序化编排
+```
+
+### 11.10 Prompt Caching 策略
+
+[LangChain 的 "Prompt Caching with Deep Agents"](https://www.langchain.com/blog/deep-agents-prompt-caching) 提供了 Agent Canvas 成本优化的量化数据：
+
+> "If I had to choose just one metric, I'd argue that the KV-cache hit rate is the single most important metric for a production-stage AI agent." — Manus AI
+
+Deep Agents 的实际测试结果：
+
+| 模型 | 缓存策略 | 成本降低 |
+|------|---------|---------|
+| claude-haiku-4-5 | Anthropic 显式断点 | -77% |
+| gpt-5.4-mini | OpenAI 自动最长前缀 | -80% |
+| gemini-3.5-flash | Gemini 隐式缓存 | -49% |
+
+**对 Agent Canvas 的关键启示**：
+
+1. **三层架构的静态前缀天然适合缓存** — 语义元素目录、组件 API 文档、映射规则在会话中不变，应作为缓存前缀
+
+2. **缓存友好的 prompt 结构** — Deep Agents 的做法是将静态部分（工具描述、技能、系统 prompt）放在前面，动态部分（用户消息、中间结果）放在后面，并在两者之间设置缓存断点。Agent Canvas 的管线 prompt 应遵循同样结构：
+
+```
+[缓存断点 A] 系统指令 + 组件目录 + 映射规则（会话内不变）
+[缓存断点 B] 用户偏好 + 历史上下文（低频变化）
+[无缓存]     当前请求 + 中间 JSON（高频变化）
+```
+
+3. **长会话收益更大** — "caching pays off more the longer a conversation runs" — Agent Canvas 的视觉修正循环（多轮渲染-审查-修正）天然是长会话，缓存收益显著
+
+4. **缓存降级最小化** — 当 Memory 更新或上下文压缩时，会导致缓存失效（cache bust）。Deep Agents 通过结构化 prompt 和显式断点使得即使部分前缀变化，仍能命中子集缓存。Agent Canvas 应将三层管线的指导信息分别设置缓存断点，确保一层变化不影响其他层的缓存
+
+### 11.11 Managed Agent 基础设施
+
+[Claude Blog 的 "Claude Managed Agents"](https://claude.com/blog/claude-managed-agents) 和 [Claude Blog 的 "CLAUDE.md files"](https://claude.com/blog/using-claude-md-files) 提供了 Agent Canvas 生产化部署的参考架构。
+
+**Managed Agents 架构**：Anthropic 提供了一套组合式 API，包含：
+
+- 沙盒化代码执行
+- 长时间运行会话（自主运行数小时，断线后状态持久化）
+- 多 Agent 协调（Agent 生成并指挥其他 Agent）
+- 治理（作用域权限、身份管理、执行追踪）
+
+内部测试显示，Managed Agents 在结构化文件生成任务上比标准 prompting loop 提升最多 10 分，最大提升出现在最难的问题上——这与 Agent Canvas 在复杂场景（70% 的中高复杂度 case）上收益最大的发现一致。
+
+**对 Agent Canvas 的启示**：Agent Canvas 可以作为 Managed Agent 上的一个应用部署——用户定义可视化需求和数据源，Managed Agent 基础设施处理沙盒、会话持久化、权限管理，Agent Canvas 负责三层管线和视觉反馈闭环。$0.08/session-hour 的定价模型为 Agent Canvas 的商业化提供了参考。
+
+**CLAUDE.md 最佳实践**（来自 [CLAUDE.md files 指南](https://claude.com/blog/using-claude-md-files)）：
+
+```markdown
+# Agent Canvas — CLAUDE.md 示例
+
+## 项目概述
+Agent Canvas 是一个可视化生成框架，Agent 生成 Canvas Schema (JSON)，
+确定性渲染引擎负责视觉输出。
+
+## 关键目录
+- src/semantic/    — 语义层（8 种元素 + 5 种角色 + 8 种关系）
+- src/data/        — 数据层（DataItem 三元组）
+- src/visual/      — 视觉语法层（4 种原语）
+- src/render/      — 确定性渲染引擎
+- src/review/      — 视觉反馈闭环（截图 + 多模态审查）
+
+## 编码规范
+- 所有 Schema 用 Zod 验证
+- 组件属性用语义化描述（emphasis: "high"），非样式化（color: "red"）
+- 渲染引擎用 CSS Grid/Flexbox，不用绝对定位
+
+## 常用命令
+npm run dev        # 开发服务器
+npm run render     # 渲染 Canvas Schema
+npm run review     # 视觉审查
+npm test           # 测试套件
+
+## 工作流
+1. 理解需求 → 输出语义层 JSON
+2. 用户确认语义 → 提取数据项
+3. 视觉映射 → 生成 Canvas Schema
+4. 渲染 + 截图 → 多模态审查
+5. 如有问题 → 修正 Schema → 回到 4
+```
+
+文章的核心建议"Start simple, expand deliberately"与 Agent Canvas 的分层使用策略一致——先实现 fast path（30% 简单场景），再逐步完善 full pipeline（70% 复杂场景）。`/init` 命令的思路也可以借鉴——Agent Canvas 可以提供一个 `/init` 命令分析用户的数据源和可视化需求，自动生成初始配置。
+
+**[Skills 完整指南](https://claude.com/blog/complete-guide-to-building-skills-for-claude) 的启示**：Agent Canvas 的视觉审查流程应该封装为 Skill——一个可复用的 SKILL.md 定义"如何验证可视化质量"，在每次生成后自动触发。Skill 的按需加载特性（会话开始只加载名称和描述，调用时才加载主体）确保不会浪费上下文。
+
 ---
 
 ## 九、关键设计决策记录
