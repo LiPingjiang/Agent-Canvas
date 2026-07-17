@@ -1215,6 +1215,239 @@ npm test           # 测试套件
 
 **[Skills 完整指南](https://claude.com/blog/complete-guide-to-building-skills-for-claude) 的启示**：Agent Canvas 的视觉审查流程应该封装为 Skill——一个可复用的 SKILL.md 定义"如何验证可视化质量"，在每次生成后自动触发。Skill 的按需加载特性（会话开始只加载名称和描述，调用时才加载主体）确保不会浪费上下文。
 
+### 11.12 持续学习的三层模型
+
+[Harrison Chase 的 "Continual learning for AI agents"](https://www.langchain.com/blog/continual-learning-for-ai-agents) 提出了一个清晰的 Agent 持续学习框架，直接映射到 Agent Canvas 的三层架构：
+
+| 学习层 | 定义 | 技术 | Agent Canvas 对应 |
+|--------|------|------|------------------|
+| Model | 模型权重 | SFT、GRPO、LoRA | 微调"可视化语义解析"专用模型 |
+| Harness | 驱动 agent 的代码+固定指令+工具 | 代码改进、prompt 调优、工具增减 | 三层管线代码、Zod schema、组件库 |
+| Context | 配置 harness 的外部指令/技能 | 记忆更新、技能增删 | CLAUDE.md、用户偏好、组件文档 |
+
+核心洞察：**学习不只发生在模型层**。Harness 层的改进（改 prompt、加工具、调代码）和 Context 层的改进（更新记忆、增加技能）往往比模型微调更快见效且成本更低。
+
+[Meta-Harness 论文](https://yoonholee.com/meta-harness/) 的方法特别值得关注：agent 在循环中运行任务 → 评估结果 → 将日志存入文件系统 → 让 coding agent 审查这些 Trace 并建议 harness 代码修改。这形成了一个 **agent 改进 agent 的元循环**。
+
+Agent Canvas 的持续学习策略应遵循三明治模式：
+
+```
+阶段一：Context 层学习（最快见效）
+  - 从生成 Trace 中提取用户偏好 → 更新 CLAUDE.md
+  - 从审查反馈中提取视觉规则 → 增加 Skill
+  - 从失败 case 中提取约束 → 更新 Zod schema
+
+阶段二：Harness 层学习（中等成本）
+  - 用 Trace 分析三层管线的瓶颈
+  - 调整 prompt 结构、增加中间件、优化缓存断点
+  - 用 coding agent 自动审查 Trace 并建议代码修改（Meta-Harness）
+
+阶段三：Model 层学习（最高成本）
+  - 收集好的生成 Trace 作为 SFT 数据
+  - 微调专用"可视化语义解析"模型
+  - 回到阶段一验证泛化
+```
+
+学习可以在不同粒度进行：
+
+| 粒度 | 示例 | Agent Canvas 应用 |
+|------|------|------------------|
+| Agent 级 | agent 自身持久记忆 | Agent Canvas 的全局视觉偏好 |
+| 用户级 | 每个用户的个性化记忆 | 用户 A 偏好暗色主题，用户 B 偏好简洁布局 |
+| 组织级 | 团队共享的上下文 | 研发团队偏好数据密集型，高管团队偏好摘要型 |
+
+两种更新模式：
+- **离线作业**（offline job）：定期扫描最近 Trace，提取洞察，更新 context——类似 OpenClaw 的 "dreaming"
+- **热路径**（hot path）：agent 在执行任务时主动更新自己的记忆——用户说"下次用柱状图"时立即记录
+
+### 11.13 Wiki Memory — Agent 的知识基
+
+[Harrison Chase 的 "Wiki Memory"](https://www.langchain.com/blog/wiki-memory) 和 [OpenWiki Brains](https://www.langchain.com/blog/introducing-openwiki-brains-general-purpose-wiki-memory-for-agents) 提出了 Agent 记忆的一个新模式，对 Agent Canvas 有直接价值。
+
+核心概念：Wiki Memory 不是原始数据的检索（RAG），而是 **agent 维护的、预计算的、结构化的知识层**。
+
+> "Raw data contains a lot of knowledge, but it is often inefficient to expose directly to an agent. So instead, we run a process over that data and transform it into a denser representation."
+
+> "For every domain there exists a knowledge base you would be well served to create. This knowledge base is not just the raw data. It is an intelligently compressed version of the raw data."
+
+Agent Canvas 应该维护的可视化 Wiki：
+
+```
+Agent Canvas Wiki Memory 结构：
+
+/wiki/
+  /patterns/
+    comparison.md      — "对比"语义的可视化模式：何时用雷达图/柱状图/热力图
+    flow.md            — "流转"语义的可视化模式：何时用桑基图/漏斗图/流程图
+    distribution.md    — "分布"语义的可视化模式：何时用散点图/箱线图/直方图
+  /components/
+    statcard.md        — StatCard 组件的使用指南、属性、最佳实践
+    chart.md           — Chart 组件的配置、数据格式、常见陷阱
+  /design-decisions/
+    why-bounded-gen.md — 为什么选择有界生成
+    why-three-layers.md — 为什么分三层
+  /user-preferences/
+    global.md          — 全局可视化偏好
+    user-{id}.md      — 用户级个性化偏好
+```
+
+Wiki Memory 与 RAG 的关键区别：
+
+| 维度 | RAG | Wiki Memory |
+|------|-----|-------------|
+| 时机 | 查询时检索原始块 | 预计算高层综合 |
+| 格式 | 原始文本块 | 结构化、agent 友好 |
+| 维护 | 被动更新索引 | Agent 主动维护和更新 |
+| 成本 | 每次查询消耗 token | 预计算后查询成本低 |
+
+文件是最佳载体——"inspectable, editable, versionable, and easy for agents to read and write"。Agent Canvas 的 Wiki 应该用 Markdown 文件存储，版本化在 Git 中，agent 可以主动读取和更新。
+
+### 11.14 模型中立性
+
+[LangChain 的 "Why Model Neutrality Matters More Than Cloud Neutrality"](https://www.langchain.com/blog/model-neutrality) 论证了为什么 Agent Canvas 必须保持模型中立。
+
+核心论证：
+
+> "The labs are selling you tokens. Tokens are a commodity. So their next move is to capture you at the harness... If they own the orchestration layer your business logic lives in, you keep consuming their tokens even when a better, cheaper model exists."
+
+> "Model neutrality matters more than cloud neutrality did. The rate of change is fundamentally different — labs are leapfrogging each other every quarter. Models are selectively commoditizing — Anthropic is ahead on coding, OpenAI on multimodal. The right answer is often to use more than one model in the same workflow."
+
+模型中立性对 Agent Canvas 的三个要求：
+
+**1. 开源 Harness** — Agent Canvas 的三层管线代码应该开源，不绑定任何模型 API。Canvas Schema 是标准 JSON，不是任何模型的私有格式。
+
+**2. 多模型支持** — 三层管线的每个阶段可以使用不同模型：
+
+```
+管线阶段          模型选择
+─────────────────────────────
+意图解析          Claude / GPT / Gemini / 开源模型
+语义建模          强模型（Claude Opus / GPT-4）
+数据实例化        便宜模型（Haiku / GPT-4-mini）
+视觉映射          中等模型（Sonnet / GPT-4）
+视觉审查          多模态模型（GPT-4o / Gemini）
+```
+
+**3. Profile-aware，非最低公约数** — 中立性不意味着假装所有模型一样。每个模型有自己的"个性"——不同的 prompt 模式、工具调用风格、强弱领域。Agent Canvas 应为不同模型维护不同的 profile（prompt 模板、工具描述格式、调用参数），而非一刀切。
+
+[NemoClaw Blueprint](https://www.langchain.com/blog/langchain-and-nvidia-launch-the-nemoclaw-deep-agents-blueprint) 的核心发现验证了这个方向：
+
+> "Agent performance improves when the model, harness, evals, and runtime are tuned together."
+
+Nemotron 3 Ultra + 调优后的 Deep Agents harness = 0.86 分 / $4.48，而最强模型 = 0.87 分 / $43.48（10 倍成本差异）。关键不是哪个模型更强，而是 **harness 与模型协同调优**。
+
+### 11.15 Trace 驱动的可观测性
+
+["Your coding agents are a black box"](https://www.langchain.com/blog/your-coding-agents-are-a-black-box-heres-how-to-crack-them-open) 和 ["Agent observability needs feedback to power learning"](https://www.langchain.com/blog/agent-observability-needs-feedback-to-power-learning) 共同构建了 Agent Canvas 的可观测性框架。
+
+**核心洞察：Trace 不是调试工具，而是学习的原料**
+
+> "The deeper role of agent observability is to power learning. But traces alone do not create that loop. You also need feedback: signals that tell you whether the agent's behavior was useful, accepted, rejected, inefficient, risky, or wrong."
+
+Agent Canvas 的完整可观测性框架：
+
+```
+Trace（发生了什么）          Feedback（是否正确）
+─────────────────────         ──────────────────────
+用户需求                      用户是否满意
+语义元素 JSON                 语义是否准确
+数据项 JSON                   数据是否完整
+Canvas Schema                 Schema 是否通过验证
+渲染截图                      视觉审查是否通过
+审查反馈                      审查发现的问题
+修正记录                      修正是否解决问题
+token 消耗                    成本是否在预算内
+执行时长                      延迟是否可接受
+```
+
+**Trace + Feedback → 三层学习**：
+
+```
+Trace + Feedback
+    ↓
+分析失败模式
+    ↓
+┌─────────────────────────────────────────┐
+│ Context 层                              │
+│ - 提取规则 → 增加到 CLAUDE.md / Skill   │
+│ - 提取偏好 → 更新用户记忆                │
+│ - 失败 case → 加入 eval 数据集           │
+├─────────────────────────────────────────┤
+│ Harness 层                              │
+│ - 诊断管线瓶颈 → 优化 prompt 结构        │
+│ - 发现重复失败 → 增加 Hook 规则          │
+│ - 用 coding agent 审查 Trace → 改代码    │
+├─────────────────────────────────────────┤
+│ Model 层                                │
+│ - 好的 Trace → SFT 数据                  │
+│ - 坏的 Trace → DPO 负样本                │
+│ - 蒸馏专用小模型                         │
+└─────────────────────────────────────────┘
+```
+
+**标准化 Trace Schema**：LangSmith 的方法是将不同 agent（Claude Code、Codex、Cursor、Copilot）的 Trace 映射到统一 schema。Agent Canvas 的 Trace schema 应包含：
+
+```typescript
+interface AgentCanvasTrace {
+  sessionId: string;
+  timestamp: string;
+  
+  // 用户输入
+  userRequest: string;
+  userFeedback?: "positive" | "negative" | "neutral";
+  
+  // 三层管线
+  semanticLayer: {
+    elements: SemanticElement[];
+    relations: SemanticRelation[];
+    modelUsed: string;
+    tokensIn: number;
+    tokensOut: number;
+    durationMs: number;
+  };
+  
+  dataLayer: {
+    items: DataItem[];
+    source: "user_provided" | "mcp_fetched" | "agent_generated";
+    modelUsed: string;
+    tokensIn: number;
+    tokensOut: number;
+  };
+  
+  visualLayer: {
+    schema: CanvasSchema;
+    grammarPrimitives: { marks: number; relations: number; boundaries: number };
+    modelUsed: string;
+    tokensIn: number;
+    tokensOut: number;
+  };
+  
+  // 渲染与反馈
+  render: {
+    durationMs: number;
+    screenshotUrl: string;
+  };
+  
+  review: {
+    passed: boolean;
+    issues: string[];
+    corrections: number;
+    finalScore?: number;
+    modelUsed: string;
+  };
+  
+  // 成本
+  totalCost: number;
+  cacheHitRate: number;
+}
+```
+
+["Your harness, your memory"](https://www.langchain.com/blog/your-harness-your-memory) 的核心警示也适用于 Agent Canvas：
+
+> "If you use a closed harness, especially if it's behind an API, you don't own your memory. Memory creates lock-in. Without memory, your agents are easily replicable by anyone who has access to the same tools."
+
+Agent Canvas 必须保持开放：Canvas Schema 是标准 JSON、Trace 是标准格式、Wiki Memory 是 Markdown 文件、记忆存储在用户控制的数据库中。这确保用户不会被锁定在特定模型或平台。
+
 ---
 
 ## 九、关键设计决策记录
